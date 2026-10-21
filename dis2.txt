@@ -1,0 +1,330 @@
+import discord
+from discord.ext import commands
+import random
+import math
+
+TARGET_GUILD_ID = 1552425444006035527
+ALLOWED_USER_ID = 861260450478292992
+BOT_TOKEN = "MTU1MjQyMjk4MjM4MTQ3Mzg2Mg.Ghwbsm.sO1WIKZ7S9troWQJ1-s04TKblQV7QpdQWKHhXg"
+
+intents = discord.Intents.default()
+intents.message_content = True
+
+bot = commands.Bot(command_prefix="$", intents=intents)
+bot.current_activity = None
+
+@bot.event
+async def on_ready():
+    print(f'Logged in as: {bot.user}')
+    bot.current_activity = None
+    await bot.change_presence(status=discord.Status.online, activity=None)
+
+@bot.event
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.CheckFailure):
+        try:
+            await ctx.reply("**You Don't Have Permission** <a:error:1554589848520884396>")
+        except discord.HTTPException:
+            pass
+
+@bot.check
+async def globally_block_other_guilds_and_dms(ctx):
+    if ctx.guild is None:
+        return False
+    return ctx.guild.id == TARGET_GUILD_ID
+
+def is_allowed_user():
+    async def predicate(ctx):
+        return ctx.author.id == ALLOWED_USER_ID
+    return commands.check(predicate)
+
+def get_target_channel(guild: discord.Guild, channel_str: str) -> discord.TextChannel:
+    channel_str = channel_str.strip()
+    if channel_str.startswith("<#") and channel_str.endswith(">"):
+        channel_id = channel_str[2:-1]
+        if channel_id.isdigit():
+            return guild.get_channel(int(channel_id))
+    elif channel_str.isdigit():
+        return guild.get_channel(int(channel_str))
+    else:
+        return discord.utils.get(guild.text_channels, name=channel_str)
+    return None
+
+class StatusView(discord.ui.View):
+    def __init__(self, user_id: int):
+        super().__init__(timeout=None)
+        self.user_id = user_id
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("**You Don't Have Permission** <a:error:1554589848520884396>", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="Online", style=discord.ButtonStyle.secondary, emoji="<a:greencrown:1555580989890105364>")
+    async def set_online(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await bot.change_presence(status=discord.Status.online, activity=bot.current_activity)
+        await interaction.response.edit_message(content="**Done** <a:done:1554957071638859870> **`Online`**", view=None)
+
+    @discord.ui.button(label="Idle", style=discord.ButtonStyle.secondary, emoji="<a:yellowcrown:1555580729302327516>")
+    async def set_idle(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await bot.change_presence(status=discord.Status.idle, activity=bot.current_activity)
+        await interaction.response.edit_message(content="**Done** <a:done:1554957071638859870> **`Idle`**", view=None)
+
+    @discord.ui.button(label="DND", style=discord.ButtonStyle.secondary, emoji="<a:redcrown:1555580916850499625>")
+    async def set_dnd(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await bot.change_presence(status=discord.Status.dnd, activity=bot.current_activity)
+        await interaction.response.edit_message(content="**Done** <a:done:1554957071638859870> **`DND`**", view=None)
+
+    @discord.ui.button(label="Invisible", style=discord.ButtonStyle.secondary, emoji="??")
+    async def set_invisible(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await bot.change_presence(status=discord.Status.invisible)
+        await interaction.response.edit_message(content="**Done** <a:done:1554957071638859870> **`Invisible`**", view=None)
+
+class ActivityView(discord.ui.View):
+    def __init__(self, user_id: int, text_value: str):
+        super().__init__(timeout=None)
+        self.user_id = user_id
+        self.text_value = text_value
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("**You Don't Have Permission** <a:error:1554589848520884396>", ephemeral=True)
+            return False
+        return True
+
+    async def update_activity(self, interaction: discord.Interaction, activity, display_text: str):
+        bot.current_activity = activity
+        current_status = interaction.guild.me.status if interaction.guild else discord.Status.online
+        if current_status == discord.Status.offline:
+            current_status = discord.Status.online
+            
+        await bot.change_presence(activity=bot.current_activity, status=current_status)
+        await interaction.response.edit_message(content=f"**Done** <a:done:1554957071638859870> **`{display_text}`**", view=None)
+
+    @discord.ui.button(label="Streaming", style=discord.ButtonStyle.secondary, emoji="<a:one:1555587580005847060>")
+    async def set_streaming(self, interaction: discord.Interaction, button: discord.ui.Button):
+        act = discord.Streaming(name=self.text_value, url="https://www.twitch.tv/discord")
+        await self.update_activity(interaction, act, f"Streaming {self.text_value}")
+        
+    @discord.ui.button(label="Playing", style=discord.ButtonStyle.secondary, emoji="<a:two:1555587643285176480>")
+    async def set_playing(self, interaction: discord.Interaction, button: discord.ui.Button):
+        act = discord.Game(name=self.text_value)
+        await self.update_activity(interaction, act, f"Playing {self.text_value}")
+
+    @discord.ui.button(label="Listening", style=discord.ButtonStyle.secondary, emoji="<a:three:1555587697085644870>")
+    async def set_listening(self, interaction: discord.Interaction, button: discord.ui.Button):
+        act = discord.Activity(type=discord.ActivityType.listening, name=self.text_value)
+        await self.update_activity(interaction, act, f"Listening {self.text_value}")
+
+    @discord.ui.button(label="Watching", style=discord.ButtonStyle.secondary, emoji="<a:four:1555587759589036092>")
+    async def set_watching(self, interaction: discord.Interaction, button: discord.ui.Button):
+        act = discord.Activity(type=discord.ActivityType.watching, name=self.text_value)
+        await self.update_activity(interaction, act, f"Watching {self.text_value}")
+
+class SayModal(discord.ui.Modal, title="Message Setup"):
+    def __init__(self, user_id: int, trigger_message: discord.Message = None):
+        super().__init__()
+        self.user_id = user_id
+        self.trigger_message = trigger_message
+
+    target_channel_input = discord.ui.TextInput(label="Channel", required=True, placeholder="Channel iD")
+    message_text = discord.ui.TextInput(label="Message", style=discord.TextStyle.paragraph, required=True, placeholder="Your Message")
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("**You Don't Have Permission** <a:error:1554589848520884396>", ephemeral=True)
+            return
+
+        target_channel = get_target_channel(interaction.guild, self.target_channel_input.value)
+
+        if not target_channel:
+            await interaction.response.send_message("**Can't Find The Channel** <a:error:1554589848520884396>", ephemeral=True)
+            return
+
+        try:
+            await target_channel.send(self.message_text.value.strip())
+            await interaction.response.send_message(f"**Done** <a:done:1554957071638859870> {target_channel.mention}!", ephemeral=True)
+        except discord.HTTPException:
+            await interaction.response.send_message("**Error Sending Message** <a:error:1554589848520884396>", ephemeral=True)
+
+        if self.trigger_message:
+            try:
+                await self.trigger_message.delete()
+            except discord.HTTPException:
+                pass
+
+class NormalEmbedModal(discord.ui.Modal, title="Embed Setup"):
+    def __init__(self, user_id: int, trigger_message: discord.Message = None):
+        super().__init__()
+        self.user_id = user_id
+        self.trigger_message = trigger_message
+
+    target_channel_input = discord.ui.TextInput(label="Channel", required=True, placeholder="Channel iD")
+    embed_title = discord.ui.TextInput(label="Title", required=False, placeholder="Embed Title")
+    description = discord.ui.TextInput(label="Description", style=discord.TextStyle.paragraph, required=True, placeholder="Embed Description")
+    thumbnail_url = discord.ui.TextInput(label="Thumbnail URL", required=False, placeholder="Can Be Empty")
+    image_url = discord.ui.TextInput(label="Image URL", required=False, placeholder="Can Be Empty")
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("**You Don't Have Permission** <a:error:1554589848520884396>", ephemeral=True)
+            return
+
+        target_channel = get_target_channel(interaction.guild, self.target_channel_input.value)
+
+        if not target_channel:
+            await interaction.response.send_message("**Can't Find The Channel** <a:error:1554589848520884396>", ephemeral=True)
+            return
+
+        t = self.embed_title.value.strip() if self.embed_title.value else None
+        d = self.description.value.strip()
+
+        random_color = discord.Color(random.randint(0, 0xFFFFFF))
+
+        embed = discord.Embed(title=t, description=d, color=random_color)
+
+        if self.thumbnail_url.value and self.thumbnail_url.value.strip().startswith("http"):
+            embed.set_thumbnail(url=self.thumbnail_url.value.strip())
+
+        if self.image_url.value and self.image_url.value.strip().startswith("http"):
+            embed.set_image(url=self.image_url.value.strip())
+
+        bot_icon = bot.user.display_avatar.url
+        embed.set_footer(text="BOT BY FR3ON @b9sg", icon_url=bot_icon)
+
+        try:
+            await target_channel.send(embed=embed)
+            await interaction.response.send_message(f"**Done** <a:done:1554957071638859870> {target_channel.mention}!", ephemeral=True)
+        except discord.HTTPException:
+            await interaction.response.send_message("**Error Sending Embed / Invalid Image URL** <a:error:1554589848520884396>", ephemeral=True)
+
+        if self.trigger_message:
+            try:
+                await self.trigger_message.delete()
+            except discord.HTTPException:
+                pass
+
+class TriggerButtonView(discord.ui.View):
+    def __init__(self, user_id: int, modal_type: str):
+        super().__init__(timeout=None)
+        self.user_id = user_id
+        self.modal_type = modal_type
+        self.message = None
+
+        if self.modal_type == "say":
+            say_button = discord.ui.Button(label="Setup", style=discord.ButtonStyle.secondary, emoji="<a:updatingyellow:1555622787635347469>")
+            say_button.callback = self.open_say
+            self.add_item(say_button)
+
+        elif self.modal_type == "embed":
+            embed_button = discord.ui.Button(label="Setup", style=discord.ButtonStyle.secondary, emoji="<a:updatingblue:1555622876713853001>")
+            embed_button.callback = self.open_embed
+            self.add_item(embed_button)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("**You Don't Have Permission** <a:error:1554589848520884396>", ephemeral=True)
+            return False
+        return True
+
+    async def open_say(self, interaction: discord.Interaction):
+        await interaction.response.send_modal(SayModal(user_id=self.user_id, trigger_message=self.message or interaction.message))
+
+    async def open_embed(self, interaction: discord.Interaction):
+        await interaction.response.send_modal(NormalEmbedModal(user_id=self.user_id, trigger_message=self.message or interaction.message))
+
+@bot.command()
+@is_allowed_user()
+async def status(ctx):
+    view = StatusView(user_id=ctx.author.id)
+    await ctx.reply("**Choose Your Bot Status** <a:RedHeart:1554797687600324661>", view=view)
+    try:
+        await ctx.message.delete()
+    except discord.HTTPException:
+        pass
+
+@bot.command()
+@is_allowed_user()
+async def activity(ctx, *, text: str = None):
+    if not text:
+        await ctx.reply("**Use The Command Like This** <a:BlueHeart:1554797627789414472>\n**`$activity FR3ON UP`**")
+        try:
+            await ctx.message.delete()
+        except discord.HTTPException:
+            pass
+        return
+
+    view = ActivityView(user_id=ctx.author.id, text_value=text)
+    await ctx.reply("**Choose Your Bot Activity** <a:BlueHeart:1554797627789414472>", view=view)
+    try:
+        await ctx.message.delete()
+    except discord.HTTPException:
+        pass
+
+@bot.command()
+async def rbxtax(ctx, amount: str = None):
+    if not amount or not amount.isdigit():
+        await ctx.reply("**Use The Command Like This** <a:BlueHeart:1554797627789414472>\n**`$rbxtax 1000`**")
+        return
+
+    val = int(amount)
+    if val <= 0 or val > 1_000_000_000:
+        await ctx.reply("**Please Enter A Valid Amount\n(1 - 1,000,000,000)** <a:error:1554589848520884396>")
+        return
+
+    after_tax = math.floor(val * 0.70)
+    tax_amount = val - after_tax
+    needed_for_clean = math.ceil(val / 0.70)
+    tax_tax_amount = needed_for_clean - val
+    
+    val = int(val)
+    after_tax = int(after_tax)
+    needed_for_clean = int(needed_for_clean)
+
+    field_value = (
+        f"**Robux:** **`{val:,}`** <:Robux:1554861372792111300>\n"
+        f"\n**You Will Receive:** **`{after_tax:,}`** <a:error:1554589848520884396>\n"
+        f"\n**Set Gamepass Price `{needed_for_clean:,}` To Receive `{val:,}` Robux** <:Success:1554925366588604436>"
+    )
+    random_color = discord.Color(random.randint(0, 0xFFFFFF))
+
+    embed = discord.Embed(
+    title="Robux TAX Calculator",
+    description=field_value,
+    color=random_color
+    )
+
+    if ctx.guild and ctx.guild.icon:
+        embed.set_thumbnail(url=ctx.guild.icon.url)
+
+    bot_icon = bot.user.display_avatar.url
+    embed.set_footer(text="BOT BY FR3ON @b9sg", icon_url=bot_icon)
+
+    await ctx.reply(embed=embed)
+
+@bot.command()
+@is_allowed_user()
+async def say(ctx):
+    view = TriggerButtonView(user_id=ctx.author.id, modal_type="say")
+    msg = await ctx.reply("**Setup Your Message First** <a:RedHeart:1554797687600324661>", view=view)
+    view.message = msg
+
+    try:
+        await ctx.message.delete()
+    except discord.HTTPException:
+        pass
+        
+@bot.command()
+@is_allowed_user()
+async def embed(ctx):
+    view = TriggerButtonView(user_id=ctx.author.id, modal_type="embed")
+    msg = await ctx.reply("**Setup Your Embed First** <a:BlueHeart:1554797627789414472>", view=view)
+    view.message = msg
+
+    try:
+        await ctx.message.delete()
+    except discord.HTTPException:
+        pass
+
+bot.run(BOT_TOKEN)
